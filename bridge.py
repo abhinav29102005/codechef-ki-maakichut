@@ -92,7 +92,8 @@ CRITICAL REQUIREMENTS:
 1. Provide a 100% correct, bug-free, optimal solution that passes all test cases.
 2. If starter code / template was provided in the editor, PRESERVE its exact template, comments, and print() statements, filling in every blank ('_____') so it runs cleanly. Do not invent a new file or write duplicate code.
 3. If no starter code was provided, write the clean, self-contained solution from scratch.
-4. Output ONLY the raw source code inside a single ```{language} ... ``` code block. Absolutely no explanation, conversational prose, or markdown outside the code block.
+4. DISCREPANCY RULE: If the problem description text says e.g. "Map A -> 1, B -> 2" but the "Expected Output" table shows 0, 1, 2 (standard LabelEncoder output), ALWAYS match the "Expected Output" table and use LabelEncoder().fit_transform(...). CodeChef evaluates strictly against the Expected Output!
+5. Output ONLY the raw source code inside a single ```{language} ... ``` code block. Absolutely no explanation, conversational prose, or markdown outside the code block.
 """
     return prompt
 

@@ -469,59 +469,59 @@ function injectIntoEditor(code) {
 }
 
 function getEditorContentInFrame() {
-  function findEditor() {
-    if (window.monaco && window.monaco.editor) {
-      const editors = (window.monaco.editor.getEditors && window.monaco.editor.getEditors()) || [];
-      if (editors.length) {
-        for (const ed of editors) {
-          const m = ed.getModel && ed.getModel();
-          if (m) {
-            const u = (m.uri ? m.uri.toString() : "").toLowerCase();
-            if (/\.(py|cpp|c|java|js|ts)$/.test(u) || (!/\.(csv|txt|json|in|out)$/.test(u) && ed.hasWidgetFocus && ed.hasWidgetFocus())) {
-              return { kind: "monaco", model: m, editor: ed };
-            }
-          }
-        }
-        const active = editors.find(ed => ed.getModel && ed.getModel());
-        if (active) return { kind: "monaco", model: active.getModel(), editor: active };
-      }
-      const models = window.monaco.editor.getModels();
-      if (models && models.length) {
-        const codeModel = models.find(m => {
-          const u = (m.uri ? m.uri.toString() : "").toLowerCase();
-          return /\.(py|cpp|c|java|js|ts)$/.test(u) && !/\.(csv|txt|json)$/.test(u);
-        });
-        return { kind: "monaco", model: codeModel || models[0] };
-      }
-    }
-    if (window.CodeMirror) {
-      for (const n of document.querySelectorAll(".CodeMirror")) {
-        if (n.CodeMirror) return { kind: "cm5", cm: n.CodeMirror };
-      }
-    }
-    const cm6 = document.querySelector(".cm-editor");
-    if (cm6) return { kind: "cm6", el: cm6 };
-    const ta = document.querySelector(".monaco-editor textarea, textarea.inputarea, textarea");
-    if (ta) return { kind: "textarea", ta };
-    return null;
-  }
-
-  const e = findEditor();
-  if (!e) return { ok: false, content: "" };
-  let val = "";
   try {
-    if (e.kind === "monaco") {
-      if (e.model && e.model.getValue) val = e.model.getValue();
-      else if (e.editor && e.editor.getValue) val = e.editor.getValue();
-    } else if (e.kind === "cm5" && e.cm) {
-      val = e.cm.getValue();
-    } else if (e.kind === "cm6" && e.el) {
-      val = e.el.innerText || "";
-    } else if (e.kind === "textarea" && e.ta) {
-      val = e.ta.value || "";
+    if (window.monaco && window.monaco.editor) {
+      const models = (window.monaco.editor.getModels && window.monaco.editor.getModels()) || [];
+      const codeModel = models.find(m => {
+        const lang = (m.getLanguageId && m.getLanguageId()) || "";
+        const uri = (m.uri ? m.uri.toString() : "").toLowerCase();
+        return (lang === "python" || lang === "cpp" || /\.(py|cpp|c|java|js|ts)$/.test(uri)) && !/\.(csv|txt|json)$/.test(uri);
+      });
+      if (codeModel && codeModel.getValue) {
+        const val = codeModel.getValue();
+        if (val && val.trim().length > 0) return { ok: true, content: val, kind: "monaco-model" };
+      }
+      const editors = (window.monaco.editor.getEditors && window.monaco.editor.getEditors()) || [];
+      for (const ed of editors) {
+        const m = ed.getModel && ed.getModel();
+        if (m && m.getValue) {
+          const val = m.getValue();
+          if (val && val.trim().length > 0) return { ok: true, content: val, kind: "monaco-editor" };
+        }
+      }
     }
   } catch {}
-  return { ok: true, content: val, kind: e.kind };
+
+  // Fallback 1: DOM Monaco view-lines
+  try {
+    const lines = document.querySelectorAll(".monaco-editor .view-lines .view-line");
+    if (lines && lines.length > 0) {
+      const text = Array.from(lines).map(l => l.innerText).join("\n");
+      if (text && text.trim().length > 0) return { ok: true, content: text, kind: "dom-view-lines" };
+    }
+  } catch {}
+
+  // Fallback 2: CodeMirror
+  try {
+    if (window.CodeMirror) {
+      for (const n of document.querySelectorAll(".CodeMirror")) {
+        if (n.CodeMirror && n.CodeMirror.getValue) {
+          const val = n.CodeMirror.getValue();
+          if (val && val.trim().length > 0) return { ok: true, content: val, kind: "cm5" };
+        }
+      }
+    }
+  } catch {}
+
+  // Fallback 3: Textarea
+  try {
+    const ta = document.querySelector(".monaco-editor textarea, textarea.inputarea, textarea");
+    if (ta && ta.value && ta.value.trim().length > 0) {
+      return { ok: true, content: ta.value, kind: "textarea" };
+    }
+  } catch {}
+
+  return { ok: false, content: "" };
 }
 
 function probeEditorInFrame() {
