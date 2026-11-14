@@ -216,20 +216,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
-        case "CC_RUN_CODE":
+        case "CC_RUN_CODE": {
+          const tab = await resolveTab(sender);
+          if (!tab || !tab.id) { sendResponse({ ok: false, error: "no-tab" }); break; }
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            world: "MAIN",
+            func: clickRunInFrame
+          }).catch((e) => [{ result: { ok: false, error: String(e) } }]);
+          const winner = (results || []).find((r) => r && r.result && r.result.ok);
+          sendResponse({ ok: !!winner });
+          break;
+        }
+        case "CC_BROADCAST_SUBMIT_ONLY":
         case "CC_BROADCAST_SUBMIT": {
           const tab = await resolveTab(sender);
           if (!tab || !tab.id) { sendResponse({ ok: false, error: "no-tab" }); break; }
           const results = await chrome.scripting.executeScript({
             target: { tabId: tab.id, allFrames: true },
             world: "MAIN",
-            func: submitCodeInFrame
+            func: clickSubmitInFrame
           }).catch((e) => [{ result: { ok: false, error: String(e) } }]);
           const winner = (results || []).find((r) => r && r.result && r.result.ok);
           if (winner) {
             sendResponse({ ok: true, location: winner.result.location });
           } else {
-            sendResponse({ ok: false, error: "Submit/Run button could not be located on CodeChef page." });
+            sendResponse({ ok: false, error: "Submit button could not be located on CodeChef page." });
           }
           break;
         }
@@ -564,58 +576,71 @@ function probeEditorInFrame() {
   return { ok: true, kind: e.kind, language: lang };
 }
 
-function submitCodeInFrame() {
-  function tryClick(doc) {
-    // 1. Selector-based targets for Run & Submit
-    const selectors = [
+function clickRunInFrame() {
+  function tryRun(doc) {
+    const runSelectors = [
       "button[data-cy*='run' i]",
-      "button[data-cy*='submit' i]",
       "[data-cy='run-btn']",
-      "[data-cy='submit-btn']",
-      "[data-cy='run-and-submit-btn']",
-      "button[id*='run' i]",
-      "button[id*='submit' i]",
       "button.run-btn",
-      "button.submit-btn",
       "button[class*='RunBtn' i]",
-      "button[class*='SubmitBtn' i]",
       "button[class*='run-button' i]",
-      "button[class*='submit-button' i]"
+      "[title*='Run' i]"
     ];
-    for (const sel of selectors) {
+    for (const sel of runSelectors) {
       const el = doc.querySelector(sel);
-      if (el && el.offsetParent !== null && !el.disabled) {
-        el.click();
-        return true;
-      }
+      if (el && el.offsetParent !== null && !el.disabled) { el.click(); return true; }
     }
-
-    // 2. Text-based targets: Run or Submit
-    const buttons = Array.from(doc.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']"));
-    // Try Run first (standard for Learn courses), then Submit
+    const buttons = Array.from(doc.querySelectorAll("button, [role='button'], a"));
     const targetBtn = buttons.find(btn => {
       if (btn.disabled || btn.offsetParent === null) return false;
       const text = (btn.innerText || btn.value || "").trim().toLowerCase();
-      return /^(run|run code|submit|submit code)$/i.test(text) || text.includes("run");
+      return text === "run" || text === "run code" || text.startsWith("run ");
     });
-    if (targetBtn) {
-      targetBtn.click();
-      return true;
-    }
+    if (targetBtn) { targetBtn.click(); return true; }
     return false;
   }
-
-  if (tryClick(document)) return { ok: true, location: "main" };
-
+  if (tryRun(document)) return { ok: true, location: "main" };
   const frames = document.querySelectorAll("iframe");
   for (const f of frames) {
-    try {
-      if (f.contentDocument && tryClick(f.contentDocument)) {
-        return { ok: true, location: "iframe" };
-      }
-    } catch {}
+    try { if (f.contentDocument && tryRun(f.contentDocument)) return { ok: true, location: "iframe" }; } catch {}
   }
-  return { ok: false, error: "submit-run-not-found" };
+  return { ok: false, error: "run-not-found" };
+}
+
+function clickSubmitInFrame() {
+  function trySubmit(doc) {
+    const submitSelectors = [
+      "button[data-cy*='submit' i]",
+      "[data-cy='submit-btn']",
+      "[data-cy='run-and-submit-btn']",
+      "button.submit-btn",
+      "button[class*='SubmitBtn' i]",
+      "button[class*='submit-button' i]",
+      "[title*='Submit' i]"
+    ];
+    for (const sel of submitSelectors) {
+      const el = doc.querySelector(sel);
+      if (el && el.offsetParent !== null && !el.disabled) { el.click(); return true; }
+    }
+    const buttons = Array.from(doc.querySelectorAll("button, [role='button'], a"));
+    const targetBtn = buttons.find(btn => {
+      if (btn.disabled || btn.offsetParent === null) return false;
+      const text = (btn.innerText || btn.value || "").trim().toLowerCase();
+      return text === "submit" || text === "submit code" || text.startsWith("submit ");
+    });
+    if (targetBtn) { targetBtn.click(); return true; }
+    return false;
+  }
+  if (trySubmit(document)) return { ok: true, location: "main" };
+  const frames = document.querySelectorAll("iframe");
+  for (const f of frames) {
+    try { if (f.contentDocument && trySubmit(f.contentDocument)) return { ok: true, location: "iframe" }; } catch {}
+  }
+  return { ok: false, error: "submit-not-found" };
+}
+
+function submitCodeInFrame() {
+  return clickRunInFrame();
 }
 
 function clickNextInFrame() {
@@ -730,31 +755,32 @@ function checkVerdictInFrame() {
     }
 
     // Check for explicit error / failed test cases
+    const hasFailIcon = doc.querySelector("[class*='fail' i], [class*='wrong' i], [class*='cross' i], [data-cy*='fail' i], [aria-label*='failed' i]");
     const isError = lower.includes("wrong answer") ||
-                    lower.includes("traceback (most recent call last)") ||
+                    lower.includes("invalid syntax") ||
                     lower.includes("syntaxerror:") ||
                     lower.includes("nameerror:") ||
+                    lower.includes("traceback (most recent call last)") ||
                     lower.includes("runtime error") ||
                     lower.includes("error:") ||
-                    lower.includes("test cases failed");
+                    lower.includes("test cases failed") ||
+                    lower.includes("failed ?") ||
+                    lower.includes("did not pass") ||
+                    hasFailIcon !== null;
     if (isError) {
       return { status: "failed", output: combined.slice(-250) };
     }
 
     // Check for explicit success / passed test cases
+    const hasPassIcon = doc.querySelectorAll("[class*='pass' i], [class*='success' i], [class*='correct' i], [data-cy*='pass' i], [aria-label*='passed' i]");
     const isPassed = lower.includes("correct answer") ||
                      lower.includes("all test cases passed") ||
                      lower.includes("accepted") ||
                      lower.includes("100/100") ||
                      lower.includes("sample test cases passed") ||
                      lower.includes("passed all test cases") ||
-                     doc.querySelector("[class*='verdict-correct' i], [class*='success' i], [class*='correct' i]");
-    if (isPassed) {
-      return { status: "passed" };
-    }
-
-    // If clean output produced without error
-    if (combined.trim().length > 10 && !isError) {
+                     (hasPassIcon.length > 0 && !isError);
+    if (isPassed && !isError) {
       return { status: "passed" };
     }
     return null;

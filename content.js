@@ -407,15 +407,15 @@
     statusSetter("📥 Replacing editor with complete verified solution…");
     const inj = await pasteCodeIntoEditor(res.code);
 
-    statusSetter("🚀 Submitting / Running code on CodeChef…");
+    statusSetter("▶ Executing Run to test against test cases…");
     await new Promise((r) => setTimeout(r, 700));
 
-    const sub = await chrome.runtime.sendMessage({ type: "CC_BROADCAST_SUBMIT" });
-    if (sub && sub.ok) {
-      statusSetter("✅ Solved & Executed!");
-      return { ok: true, submitted: true };
+    const runRes = await chrome.runtime.sendMessage({ type: "CC_RUN_CODE" });
+    if (runRes && runRes.ok) {
+      statusSetter("▶ Code running! Waiting for test results…");
+      return { ok: true, submitted: false };
     } else {
-      statusSetter("⚠️ Code injected! Click Run / Submit to finish.");
+      statusSetter("⚠️ Code injected! Click Run to test.");
       return { ok: true, submitted: false };
     }
   }
@@ -527,33 +527,31 @@
         return;
       }
 
-      // ONLY advance if passed or verified (never if failed)
-      if (v === "passed" || attempts >= 8) {
-        const nextBtn = findNextButton(document);
-        if (nextBtn) {
-          clearInterval(interval);
-          statusSetter("✅ Test cases passed! Advancing in 2s…");
-          setTimeout(() => {
-            nextBtn.click();
-          }, 1800);
-          return;
-        }
-
-        // Try broadcast next across all frames
+      // STRICT: ONLY submit & advance if all test cases passed!
+      if (v === "passed") {
+        clearInterval(interval);
+        statusSetter("✅ All test cases passed! Submitting final code…");
         try {
-          const bgRes = await chrome.runtime.sendMessage({ type: "CC_BROADCAST_CLICK_NEXT" });
-          if (bgRes && bgRes.ok) {
-            clearInterval(interval);
-            statusSetter("✅ Test cases passed! Advancing to next problem…");
-            return;
-          }
+          await chrome.runtime.sendMessage({ type: "CC_BROADCAST_SUBMIT_ONLY" });
         } catch {}
+        await new Promise((r) => setTimeout(r, 1500));
+
+        statusSetter("✅ Submitted! Advancing to next problem in 2s…");
+        setTimeout(() => {
+          const nextBtn = findNextButton(document);
+          if (nextBtn) {
+            nextBtn.click();
+          } else {
+            chrome.runtime.sendMessage({ type: "CC_BROADCAST_CLICK_NEXT" });
+          }
+        }, 1800);
+        return;
       }
 
-      if (attempts >= 30) {
+      if (attempts >= 40) {
         clearInterval(interval);
         sessionStorage.removeItem("cc_auto_advance");
-        statusSetter("⚠️ Finished run. Click Next to continue.");
+        statusSetter("⚠️ Tests did not finish passing within 45s. Halting.", true);
         const stopBtn = document.querySelector("[data-cc='stop-advance']");
         const startBtn = document.querySelector("[data-cc='auto-advance']");
         if (stopBtn) stopBtn.style.display = "none";
