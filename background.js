@@ -162,14 +162,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "CC_GET_EDITOR_CONTENT": {
+          const tab = await resolveTab(sender);
+          if (!tab || !tab.id) { sendResponse({ ok: false, content: "" }); break; }
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            world: "MAIN",
+            func: getEditorContentInFrame
+          }).catch(() => []);
+          const winner = (results || []).find((r) => r && r.result && r.result.ok && r.result.content && r.result.content.trim().length > 0);
+          sendResponse({ ok: true, content: winner ? winner.result.content : "" });
+          break;
+        }
         case "CC_SOLVE_WITH_ANTIGRAVITY": {
           try {
+            const tab = await resolveTab(sender);
+            let existingCode = msg.existing_code || "";
+
+            // Automatically extract existing code from active editor if not explicitly passed
+            if (!existingCode && tab && tab.id) {
+              const results = await chrome.scripting.executeScript({
+                target: { tabId: tab.id, allFrames: true },
+                world: "MAIN",
+                func: getEditorContentInFrame
+              }).catch(() => []);
+              const winner = (results || []).find((r) => r && r.result && r.result.ok && r.result.content && r.result.content.trim().length > 0);
+              if (winner) {
+                existingCode = winner.result.content;
+              }
+            }
+
             const bridgeRes = await fetch("http://127.0.0.1:8765/solve", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 problem: msg.problem,
-                language: msg.language || "cpp"
+                language: msg.language || "python",
+                existing_code: existingCode
               })
             });
             if (!bridgeRes.ok) {
@@ -187,6 +216,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "CC_RUN_CODE":
         case "CC_BROADCAST_SUBMIT": {
           const tab = await resolveTab(sender);
           if (!tab || !tab.id) { sendResponse({ ok: false, error: "no-tab" }); break; }
@@ -436,6 +466,62 @@ function injectIntoEditor(code) {
     }
     return { ok: true, kind: e.kind, language: detectLang(e) };
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
+}
+
+function getEditorContentInFrame() {
+  function findEditor() {
+    if (window.monaco && window.monaco.editor) {
+      const editors = (window.monaco.editor.getEditors && window.monaco.editor.getEditors()) || [];
+      if (editors.length) {
+        for (const ed of editors) {
+          const m = ed.getModel && ed.getModel();
+          if (m) {
+            const u = (m.uri ? m.uri.toString() : "").toLowerCase();
+            if (/\.(py|cpp|c|java|js|ts)$/.test(u) || (!/\.(csv|txt|json|in|out)$/.test(u) && ed.hasWidgetFocus && ed.hasWidgetFocus())) {
+              return { kind: "monaco", model: m, editor: ed };
+            }
+          }
+        }
+        const active = editors.find(ed => ed.getModel && ed.getModel());
+        if (active) return { kind: "monaco", model: active.getModel(), editor: active };
+      }
+      const models = window.monaco.editor.getModels();
+      if (models && models.length) {
+        const codeModel = models.find(m => {
+          const u = (m.uri ? m.uri.toString() : "").toLowerCase();
+          return /\.(py|cpp|c|java|js|ts)$/.test(u) && !/\.(csv|txt|json)$/.test(u);
+        });
+        return { kind: "monaco", model: codeModel || models[0] };
+      }
+    }
+    if (window.CodeMirror) {
+      for (const n of document.querySelectorAll(".CodeMirror")) {
+        if (n.CodeMirror) return { kind: "cm5", cm: n.CodeMirror };
+      }
+    }
+    const cm6 = document.querySelector(".cm-editor");
+    if (cm6) return { kind: "cm6", el: cm6 };
+    const ta = document.querySelector(".monaco-editor textarea, textarea.inputarea, textarea");
+    if (ta) return { kind: "textarea", ta };
+    return null;
+  }
+
+  const e = findEditor();
+  if (!e) return { ok: false, content: "" };
+  let val = "";
+  try {
+    if (e.kind === "monaco") {
+      if (e.model && e.model.getValue) val = e.model.getValue();
+      else if (e.editor && e.editor.getValue) val = e.editor.getValue();
+    } else if (e.kind === "cm5" && e.cm) {
+      val = e.cm.getValue();
+    } else if (e.kind === "cm6" && e.el) {
+      val = e.el.innerText || "";
+    } else if (e.kind === "textarea" && e.ta) {
+      val = e.ta.value || "";
+    }
+  } catch {}
+  return { ok: true, content: val, kind: e.kind };
 }
 
 function probeEditorInFrame() {

@@ -38,16 +38,38 @@ def format_language(lang_code):
         return "Java (Java 17)"
     if "javascript" in l or l == "js" or "typescript" in l:
         return "JavaScript (Node.js)"
-    return lang_code or "C++"
+    return lang_code or "Python 3"
 
-def build_prompt(problem, language):
+def build_prompt(problem, language, existing_code=""):
     lang_name = format_language(language)
     samples_str = ""
     samples = problem.get("samples") or []
     for i, s in enumerate(samples):
         samples_str += f"\nSample {i+1} Input:\n{s.get('input', '')}\nSample {i+1} Output:\n{s.get('output', '')}\n"
 
-    prompt = f"""You are an elite competitive programmer solving a CodeChef problem.
+    existing_section = ""
+    if existing_code and existing_code.strip():
+        existing_section = f"""
+======================================================================
+CURRENT CODEBASE / STARTER CODE IN THE STUDENT'S EDITOR:
+======================================================================
+```{language}
+{existing_code.strip()}
+```
+======================================================================
+CRITICAL INSTRUCTIONS FOR CURRENT CODE:
+1. The student editor ALREADY contains the starter code / template shown above.
+2. Carefully analyze this code!
+3. If it has blanks (e.g. '______', '...', TODO, or incomplete expressions):
+   - You MUST PRESERVE the existing structure, comments, variables, and all print() statements exactly.
+   - ONLY fill in the blanks / missing parts so the code runs without syntax/runtime errors and matches the Expected Output.
+   - If there is any duplicate code appended at the bottom from a prior paste, discard the duplicate and only complete the original template cleanly.
+4. If the code is already complete, verify it and return the clean, working version.
+5. If a dataset like 'customers.csv' is mentioned, read it using pd.read_csv('customers.csv') or as instructed.
+======================================================================
+"""
+
+    prompt = f"""You are an elite competitive programmer and machine learning engineer solving a CodeChef problem.
 Language: {lang_name}
 Problem Title: {problem.get('title', '')} ({problem.get('code', '')})
 URL: {problem.get('url', '')}
@@ -65,13 +87,12 @@ Constraints:
 {problem.get('constraints', '')}
 
 {samples_str}
-
+{existing_section}
 CRITICAL REQUIREMENTS:
-1. Provide a 100% correct, bug-free, and optimal solution that passes all test cases within the time and memory limits.
-2. If the problem asks for standard I/O, read strictly from standard input (stdin) and write strictly to standard output (stdout). If it asks to complete a specific function or write an ML script (NumPy, Scikit-learn, etc.), provide the exact code required.
-3. If C++: Use `#include <bits/stdc++.h>`, fast I/O (`ios_base::sync_with_stdio(false); cin.tie(NULL);`), and appropriate types like `long long` to prevent integer overflow.
-4. If Python: Write idiomatic, clean Python 3. Use `sys.stdin.read` or `sys.stdin.readline` where large inputs are expected.
-5. Output ONLY the raw source code inside a single ```{language} ... ``` code block. Absolutely no explanation, analysis, or conversational text.
+1. Provide a 100% correct, bug-free, optimal solution that passes all test cases.
+2. If starter code / template was provided in the editor, PRESERVE its exact template, comments, and print() statements, filling in every blank ('_____') so it runs cleanly. Do not invent a new file or write duplicate code.
+3. If no starter code was provided, write the clean, self-contained solution from scratch.
+4. Output ONLY the raw source code inside a single ```{language} ... ``` code block. Absolutely no explanation, conversational prose, or markdown outside the code block.
 """
     return prompt
 
@@ -114,16 +135,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             data = json.loads(post_data.decode("utf-8"))
             problem = data.get("problem", {})
-            language = data.get("language", "cpp")
+            language = data.get("language", "python")
+            existing_code = data.get("existing_code", "")
 
             # Smart detection: ML / Data Science courses & Pandas problems require Python
-            stmt = (problem.get("statement", "") + " " + problem.get("url", "")).lower()
-            if any(k in stmt for k in ["pandas", "sklearn", "numpy", "dataframe", "read_csv", "matplotlib", "seaborn", "-ml-", "scikit"]):
+            stmt = (problem.get("statement", "") + " " + problem.get("url", "") + " " + existing_code).lower()
+            if any(k in stmt for k in ["pandas", "sklearn", "numpy", "dataframe", "read_csv", "matplotlib", "seaborn", "-ml-", "scikit", "label_encoder", "onehot"]):
                 language = "python"
 
-            print(f"[Bridge] Received solve request for: {problem.get('title')} ({problem.get('code')}) in {language}")
+            print(f"[Bridge] Received solve request for: {problem.get('title')} ({problem.get('code')}) in {language} (existing code: {len(existing_code)} chars)")
 
-            prompt = build_prompt(problem, language)
+            prompt = build_prompt(problem, language, existing_code)
 
             # Call agy CLI safely with lock
             with SOLVE_LOCK:
@@ -161,7 +183,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             }).encode("utf-8"))
 
         except Exception as e:
-            print(f"[Bridge] Exception during solve: {e}")
+            print(f"[Bridge] Exception in handler: {e}")
             self.send_response(500)
             self._send_cors_headers()
             self.send_header("Content-Type", "application/json")
@@ -170,9 +192,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Clean logging
-        sys.stderr.write(f"[Bridge] {self.address_string()} - {format % args}\n")
+        sys.stderr.write(f"[Bridge HTTP] {self.address_string()} - {format % args}\n")
 
-def run():
+def main():
     server = ThreadedHTTPServer((HOST, PORT), BridgeHandler)
     print(f"🚀 Antigravity Bridge running on http://{HOST}:{PORT}")
     try:
@@ -182,5 +204,4 @@ def run():
         server.server_close()
 
 if __name__ == "__main__":
-    run()
-
+    main()

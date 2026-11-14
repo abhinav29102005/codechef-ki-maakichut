@@ -8,39 +8,51 @@
 <body>
   <header>
     <img class="logo" src="icons/icon48.png" alt="CodeChef Companion" />
-    <div>
+    <div class="header-text">
       <h1>CodeChef Companion</h1>
-      <p class="sub">Copy · Save · Solve · Ask</p>
+      <p class="sub">Copy · Save · Solve · Auto-Advance</p>
     </div>
   </header>
 
-  <section class="actions">
-    <button id="antigravity-solve" class="antigravity">⚡ Antigravity Solve & Submit</button>
-    <div style="display:flex;gap:6px;">
-      <button id="nav-prev" style="flex:1;text-align:center;">⏮️ Prev</button>
-      <button id="nav-next" style="flex:1;text-align:center;">⏭️ Next</button>
+  <main class="actions">
+    <!-- Primary Automation Button -->
+    <button id="auto-advance" class="btn btn-auto">🚀 Auto-Complete (Waits for Pass)</button>
+    <button id="stop-auto" class="btn btn-stop" style="display:none;">⏹️ Stop Auto-Advance</button>
+
+    <!-- Solve & Run -->
+    <button id="antigravity-solve" class="btn btn-antigravity">⚡ Antigravity Solve & Run</button>
+
+    <!-- Navigation & Run Controls -->
+    <div class="btn-row">
+      <button id="nav-prev" class="btn btn-nav" title="Previous Question">⏮️ Prev</button>
+      <button id="run-code" class="btn btn-run" title="Run / Submit Code">▶ Run</button>
+      <button id="nav-next" class="btn btn-nav" title="Next Question">⏭️ Next</button>
     </div>
-    <button id="ask-chatgpt" class="gpt">🤖 Ask ChatGPT</button>
-    <button id="paste-clipboard" class="accent">📋 Paste clipboard to CodeChef</button>
-    <button id="copy-all">📋 Copy this problem</button>
-    <button id="search-github">🔍 Search GitHub</button>
-    <button id="save">💾 Save to library</button>
-    <button id="download">⬇️ Download bundle</button>
-    <button id="paste">📥 Paste saved solution</button>
-    <button id="open-library" class="primary">🗂️ Open library</button>
-  </section>
 
-  <section class="hint">
-    <p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> Antigravity solve · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> paste clipboard · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> ChatGPT</p>
-  </section>
+    <!-- Quick Utilities -->
+    <div class="btn-grid">
+      <button id="paste-clipboard" class="btn btn-accent">📋 Paste to Editor</button>
+      <button id="toggle-toolbar" class="btn btn-outline">📌 Floating Toolbar</button>
+      <button id="ask-chatgpt" class="btn btn-gpt">🤖 Ask ChatGPT</button>
+      <button id="copy-all" class="btn btn-outline">📄 Copy Problem</button>
+    </div>
 
-  <section class="recent">
-    <h2>Recent</h2>
-    <ul id="recent-list"><li class="empty">No saved problems yet.</li></ul>
-  </section>
+    <!-- Reload & Sync Helpers -->
+    <div class="btn-row reload-row">
+      <button id="reload-page" class="btn btn-sm">🔄 Reload Page</button>
+      <button id="reload-extension" class="btn btn-sm">⚡ Reload Extension</button>
+    </div>
+
+    <!-- Library & Extra -->
+    <div class="btn-row">
+      <button id="save" class="btn btn-sm" style="flex:1;">💾 Save</button>
+      <button id="open-library" class="btn btn-sm btn-primary" style="flex:1;">🗂️ Library</button>
+      <button id="search-github" class="btn btn-sm" style="flex:1;">🔍 GitHub</button>
+    </div>
+  </main>
 
   <footer>
-    <span id="status"></span>
+    <div id="status"></div>
     <a id="open-settings" href="#" title="Settings">⚙️</a>
   </footer>
 

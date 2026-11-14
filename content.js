@@ -376,12 +376,25 @@
                    /(pandas|dataframe|sklearn|numpy|read_csv)/i.test(p.statement);
       editorLang = isML ? "python" : "cpp";
     }
-    statusSetter(`⚡ Antigravity solving (${editorLang})…`);
+    let existingCode = "";
+    try {
+      const edRes = await chrome.runtime.sendMessage({ type: "CC_GET_EDITOR_CONTENT" });
+      if (edRes && edRes.ok && edRes.content) {
+        existingCode = edRes.content;
+      }
+    } catch {}
+
+    if (existingCode && (existingCode.includes("____") || existingCode.includes("TODO") || existingCode.includes("Step 1"))) {
+      statusSetter("Analyzing starter template in editor & completing blanks…");
+    } else {
+      statusSetter(`⚡ Antigravity solving (${editorLang})…`);
+    }
 
     const res = await chrome.runtime.sendMessage({
       type: "CC_SOLVE_WITH_ANTIGRAVITY",
       problem: p,
-      language: editorLang
+      language: editorLang,
+      existing_code: existingCode
     });
 
     if (!res || !res.ok) {
@@ -391,7 +404,7 @@
     // Always copy code to clipboard as guaranteed backup
     try { await navigator.clipboard.writeText(res.code); } catch {}
 
-    statusSetter("📥 Injecting solution into editor…");
+    statusSetter("📥 Replacing editor with complete verified solution…");
     const inj = await pasteCodeIntoEditor(res.code);
 
     statusSetter("🚀 Submitting / Running code on CodeChef…");
@@ -405,6 +418,32 @@
       statusSetter("⚠️ Code injected! Click Run / Submit to finish.");
       return { ok: true, submitted: false };
     }
+  }
+
+  function findPrevButton(doc = document) {
+    const selectors = [
+      "button[data-cy*='prev' i]",
+      "a[data-cy*='prev' i]",
+      "[data-cy='prev-btn']",
+      "[data-cy='previous-btn']",
+      "[data-cy='back-btn']",
+      "button.prev-btn",
+      "a.prev-btn",
+      "button[class*='prev' i]",
+      "a[class*='prev' i]",
+      "button[class*='previous' i]",
+      "a[class*='previous' i]"
+    ];
+    for (const s of selectors) {
+      const el = doc.querySelector(s);
+      if (el && el.offsetParent !== null && !el.disabled) return el;
+    }
+    const candidates = Array.from(doc.querySelectorAll("button, a, [role='button'], span"));
+    return candidates.find((b) => {
+      if (b.disabled || b.offsetParent === null) return false;
+      const t = (b.innerText || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      return /^(prev|< prev|previous|< previous|back)$/i.test(t) || t.includes("prev") || t.includes("previous");
+    }) || null;
   }
 
   function findNextButton(doc = document) {
@@ -888,6 +927,71 @@
           sendResponse({ ok: false, error: String(e.message || e) });
         }
       })();
+      return true;
+    }
+    if (msg.type === "CC_AUTO_COMPLETE") {
+      (async () => {
+        try {
+          const bar = document.querySelector(".cc-toolbar") || buildToolbar();
+          const status = bar ? bar.querySelector(".cc-status") : null;
+          const flash = (m, isErr) => {
+            if (!status) return;
+            status.textContent = m;
+            status.style.color = isErr ? "#dc2626" : "#059669";
+            status.classList.add("show");
+            setTimeout(() => status.classList.remove("show"), 2600);
+          };
+          autoSolveAndAdvance(flash);
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e.message || e) });
+        }
+      })();
+      return true;
+    }
+    if (msg.type === "CC_STOP_AUTO") {
+      sessionStorage.removeItem("cc_auto_advance");
+      const bar = document.querySelector(".cc-toolbar");
+      if (bar) {
+        const startBtn = bar.querySelector("[data-cc='auto-advance']");
+        const stopBtn = bar.querySelector("[data-cc='stop-advance']");
+        if (startBtn) startBtn.style.display = "block";
+        if (stopBtn) stopBtn.style.display = "none";
+        const status = bar.querySelector(".cc-status");
+        if (status) {
+          status.textContent = "Auto-advance stopped.";
+          status.style.color = "#dc2626";
+          status.classList.add("show");
+          setTimeout(() => status.classList.remove("show"), 2600);
+        }
+      }
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "CC_RUN_CODE") {
+      chrome.runtime.sendMessage({ type: "CC_BROADCAST_SUBMIT" }).then((r) => {
+        sendResponse(r || { ok: true });
+      });
+      return true;
+    }
+    if (msg.type === "CC_TOGGLE_TOOLBAR") {
+      let bar = document.querySelector(".cc-toolbar");
+      if (!bar) {
+        bar = buildToolbar();
+        sendResponse({ ok: true, visible: true });
+      } else {
+        if (bar.style.display === "none") {
+          bar.style.display = "block";
+          sendResponse({ ok: true, visible: true });
+        } else {
+          bar.style.display = "none";
+          sendResponse({ ok: true, visible: false });
+        }
+      }
+      return true;
+    }
+    if (msg.type === "CC_GET_AUTO_STATUS") {
+      sendResponse({ ok: true, active: sessionStorage.getItem("cc_auto_advance") === "1" });
       return true;
     }
     if (msg.type === "CC_ASK_CHATGPT") {
