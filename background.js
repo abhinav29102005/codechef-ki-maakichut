@@ -397,87 +397,116 @@ function renderMarkdown(p) {
 
 // ---------- Editor injection (also runs inside frames) ----------
 function injectIntoEditor(code) {
-  function findEditor() {
+  try {
+    // 1. Monaco Editor (via window.monaco in MAIN world)
     if (window.monaco && window.monaco.editor) {
+      const models = (window.monaco.editor.getModels && window.monaco.editor.getModels()) || [];
       const editors = (window.monaco.editor.getEditors && window.monaco.editor.getEditors()) || [];
-      if (editors.length) {
-        for (const ed of editors) {
-          const m = ed.getModel && ed.getModel();
-          if (m) {
-            const u = (m.uri ? m.uri.toString() : "").toLowerCase();
-            if (/\.(py|cpp|c|java|js|ts)$/.test(u) || (!/\.(csv|txt|json|in|out)$/.test(u) && ed.hasWidgetFocus && ed.hasWidgetFocus())) {
-              return { kind: "monaco", model: m, editor: ed, api: window.monaco };
-            }
+
+      // Identify active or code model
+      let targetModel = null;
+      let targetEditor = null;
+
+      for (const ed of editors) {
+        const m = ed.getModel && ed.getModel();
+        if (m) {
+          const u = (m.uri ? m.uri.toString() : "").toLowerCase();
+          if (!/\.(csv|txt|json|in|out)$/.test(u)) {
+            targetModel = m;
+            targetEditor = ed;
+            break;
           }
         }
-        const active = editors.find(ed => ed.getModel && ed.getModel());
-        if (active) return { kind: "monaco", model: active.getModel(), editor: active, api: window.monaco };
       }
-      const models = (window.monaco.editor.getModels && window.monaco.editor.getModels()) || [];
-      if (models.length) {
-        const codeModel = models.find(m => {
+
+      if (!targetModel && models.length) {
+        targetModel = models.find(m => {
           const u = (m.uri ? m.uri.toString() : "").toLowerCase();
-          return /\.(py|cpp|c|java|js|ts)$/.test(u) && !/\.(csv|txt|json)$/.test(u);
-        });
-        return { kind: "monaco", model: codeModel || models[0], api: window.monaco };
+          return !/\.(csv|txt|json|in|out)$/.test(u);
+        }) || models[0];
       }
-    }
-    if (window.CodeMirror) {
-      for (const n of document.querySelectorAll(".CodeMirror")) {
-        if (n.CodeMirror) return { kind: "cm5", cm: n.CodeMirror };
-      }
-    }
-    const cm6 = document.querySelector(".cm-editor");
-    if (cm6) return { kind: "cm6", el: cm6 };
-    const ta = document.querySelector(".monaco-editor textarea, textarea.inputarea, textarea");
-    if (ta) return { kind: "textarea", ta };
-    return null;
-  }
-  function detectLang(e) {
-    try {
-      if (e.kind === "monaco" && e.model && e.model.getLanguageId) {
-        const id = e.model.getLanguageId();
-        if (id) return id;
-      }
-      if (e.kind === "cm5" && e.cm && e.cm.getOption) {
-        const mode = e.cm.getOption("mode");
-        if (mode) return String(mode);
-      }
-      const sel = document.querySelector("select[name*='language' i], select[id*='language' i]");
-      if (sel && sel.value) return sel.value;
-    } catch {}
-    return null;
-  }
-  const e = findEditor();
-  if (!e) return { ok: false, error: "no-editor-found" };
-  try {
-    if (e.kind === "monaco") {
-      if (e.editor && e.editor.setValue) {
-        e.editor.setValue(code);
-        e.editor.focus();
-      } else if (e.model && e.model.setValue) {
-        e.model.setValue(code);
-      }
-      if (e.api && e.api.editor && e.api.editor.getEditors) {
-        const eds = e.api.editor.getEditors();
-        if (eds && eds[0]) {
+
+      if (targetModel) {
+        // Completely replace model buffer
+        targetModel.setValue(code);
+
+        // Apply via active editor if available to update view and trigger change listeners
+        if (targetEditor) {
           try {
-            const lc = e.model.getLineCount();
-            eds[0].setPosition({ lineNumber: lc, column: e.model.getLineMaxColumn(lc) });
-            eds[0].focus();
+            targetEditor.executeEdits("cc-companion", [{
+              range: targetModel.getFullModelRange(),
+              text: code,
+              forceMoveMarkers: true
+            }]);
+            targetEditor.pushUndoStop();
+            targetEditor.setPosition({ lineNumber: 1, column: 1 });
+            targetEditor.focus();
           } catch {}
         }
+
+        const lang = (targetModel.getLanguageId && targetModel.getLanguageId()) || "python";
+        return { ok: true, kind: "monaco", language: lang };
       }
-    } else if (e.kind === "cm5") { e.cm.setValue(code); e.cm.focus(); }
-    else if (e.kind === "cm6") {
-      e.el.focus(); document.execCommand("selectAll"); document.execCommand("insertText", false, code);
-    } else if (e.kind === "textarea") {
-      e.ta.focus(); e.ta.value = code;
-      e.ta.dispatchEvent(new Event("input", { bubbles: true }));
-      e.ta.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    return { ok: true, kind: e.kind, language: detectLang(e) };
-  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+
+    // 2. Monaco Editor DOM Fallback (when window.monaco is encapsulated)
+    const monacoContainer = document.querySelector(".monaco-editor");
+    if (monacoContainer) {
+      const ta = monacoContainer.querySelector("textarea.inputarea, textarea");
+      if (ta) {
+        ta.focus();
+        // Select all existing text
+        ta.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", keyCode: 65, which: 65, ctrlKey: true, bubbles: true, cancelable: true }));
+        // Paste new code
+        const dt = new DataTransfer();
+        dt.setData("text/plain", code);
+        const pasteEvt = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt
+        });
+        ta.dispatchEvent(pasteEvt);
+        return { ok: true, kind: "monaco-dom-paste", language: "python" };
+      }
+    }
+
+    // 3. CodeMirror 5
+    if (window.CodeMirror) {
+      for (const n of document.querySelectorAll(".CodeMirror")) {
+        if (n.CodeMirror && n.CodeMirror.setValue) {
+          n.CodeMirror.setValue(code);
+          n.CodeMirror.focus();
+          return { ok: true, kind: "cm5" };
+        }
+      }
+    }
+
+    // 4. CodeMirror 6
+    const cm6 = document.querySelector(".cm-editor");
+    if (cm6) {
+      cm6.focus();
+      document.execCommand("selectAll");
+      document.execCommand("insertText", false, code);
+      return { ok: true, kind: "cm6" };
+    }
+
+    // 5. Standard Textarea (ONLY if NOT on a Monaco page)
+    if (!monacoContainer) {
+      const ta = document.querySelector("textarea");
+      if (ta) {
+        ta.focus();
+        ta.value = "";
+        ta.value = code;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        ta.dispatchEvent(new Event("change", { bubbles: true }));
+        return { ok: true, kind: "textarea" };
+      }
+    }
+
+    return { ok: false, error: "no-editor-found" };
+  } catch (err) {
+    return { ok: false, error: String(err.message || err) };
+  }
 }
 
 function getEditorContentInFrame() {
@@ -525,11 +554,13 @@ function getEditorContentInFrame() {
     }
   } catch {}
 
-  // Fallback 3: Textarea
+  // Fallback 3: Plain Textarea (only if not a Monaco editor page)
   try {
-    const ta = document.querySelector(".monaco-editor textarea, textarea.inputarea, textarea");
-    if (ta && ta.value && ta.value.trim().length > 0) {
-      return { ok: true, content: ta.value, kind: "textarea" };
+    if (!document.querySelector(".monaco-editor")) {
+      const ta = document.querySelector("textarea");
+      if (ta && ta.value && ta.value.trim().length > 0) {
+        return { ok: true, content: ta.value, kind: "textarea" };
+      }
     }
   } catch {}
 
