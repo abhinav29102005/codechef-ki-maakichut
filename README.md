@@ -31,8 +31,8 @@ Everything is stored locally in your browser. No external tracking.
 
 1. Download or clone this repo:
    ```bash
-   git clone https://github.com/<your-username>/codechef-companion.git
-   cd codechef-companion
+   git clone https://github.com/abhinav29102005/codechef-ki-maakichut.git
+   cd codechef-ki-maakichut
    ```
 2. Open `chrome://extensions` (Chrome) or `brave://extensions` (Brave).
 3. Enable **Developer mode** (top-right toggle).

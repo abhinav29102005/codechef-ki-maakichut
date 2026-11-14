@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://abhinav29102005.github.io/codechef-companion/sitemap.xml
+Sitemap: https://abhinav29102005.github.io/codechef-ki-maakichut/sitemap.xml
